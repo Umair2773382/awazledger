@@ -1,0 +1,8 @@
+# Lean set for hosted demo (Streamlit Community Cloud).
+# No torch / faster-whisper here — transcription goes through the free Groq API.
+streamlit>=1.35
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+python-dotenv>=1.0
+openai>=1.30

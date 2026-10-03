@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AwazLedger — آواز لیجر</title>
+<style>
+  :root { --green: #1a7f37; --bg: #f6f8fa; }
+  * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+  body { margin: 0; background: var(--bg); color: #1f2328; }
+  header { background: #0d3b1e; color: #fff; padding: 14px 18px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header small { opacity: .75; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  .card { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  #micBtn {
+    width: 120px; height: 120px; border-radius: 50%; border: none; cursor: pointer;
+    font-size: 48px; background: var(--green); color: #fff; display: block; margin: 8px auto;
+    box-shadow: 0 4px 14px rgba(26,127,55,.4);
+  }
+  #micBtn.rec { background: #cf222e; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { transform: scale(1.06); } }
+  .hint { text-align: center; color: #57606a; font-size: 14px; }
+  #result { white-space: pre-wrap; }
+  .transcript { color: #57606a; font-style: italic; margin-bottom: 8px; }
+  .msg { font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eaeef2; }
+  button.small { background: #0d3b1e; color: #fff; border: none; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+  #summary { white-space: pre-wrap; font-size: 15px; }
+</style>
+</head>
+<body>
+<header><h1>🎙️ AwazLedger <small>آواز لیجر — voice bookkeeping</small></h1></header>
+<main>
+  <div class="card">
+    <button id="micBtn" title="Record">🎤</button>
+    <p class="hint" id="micHint">Tap the mic, speak your sale, tap again to stop.<br>e.g. “Shah Raziq ko 20 kilo atta, ek bori”</p>
+    <div id="result"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Aaj ka hisab <button class="small" id="hisabBtn">Show</button></h3>
+    <div id="summary">—</div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Recent entries</h3>
+    <table><thead><tr><th>Customer</th><th>Item</th><th>Qty</th><th>Amount</th></tr></thead>
+    <tbody id="ledgerBody"><tr><td colspan="4">—</td></tr></tbody></table>
+  </div>
+</main>
+<script>
+let rec = null, chunks = [], recording = false;
+const micBtn = document.getElementById('micBtn'),
+      micHint = document.getElementById('micHint'),
+      result = document.getElementById('result');
+
+micBtn.onclick = async () => {
+  if (!recording) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      rec = new MediaRecorder(stream);
+      chunks = [];
+      rec.ondataavailable = e => chunks.push(e.data);
+      rec.onstop = sendAudio;
+      rec.start();
+      recording = true;
+      micBtn.classList.add('rec'); micBtn.textContent = '⏹';
+      micHint.textContent = 'Recording… tap again to stop.';
+      result.innerHTML = '';
+    } catch (e) { result.innerHTML = '<div class="msg">Mic access denied.</div>'; }
+  } else {
+    rec.stop(); rec.stream.getTracks().forEach(t => t.stop());
+    recording = false;
+    micBtn.classList.remove('rec'); micBtn.textContent = '🎤';
+    micHint.textContent = 'Processing…';
+  }
+};
+
+async function sendAudio() {
+  const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+  const fd = new FormData();
+  fd.append('audio', blob, 'note.webm');
+  try {
+    const r = await fetch('/api/voice', { method: 'POST', body: fd });
+    const j = await r.json();
+    result.innerHTML =
+      (j.transcript ? `<div class="transcript">“${j.transcript}”</div>` : '') +
+      `<div class="msg">${j.message || 'Error'}</div>`;
+  } catch (e) {
+    result.innerHTML = '<div class="msg">Server error — is the backend running?</div>';
+  }
+  micHint.innerHTML = 'Tap the mic, speak your sale, tap again to stop.';
+  refreshLedger();
+}
+
+async function refreshLedger() {
+  const j = await (await fetch('/api/ledger?limit=20')).json();
+  document.getElementById('ledgerBody').innerHTML = j.length ? j.map(r =>
+    `<tr><td>${r.customer}</td><td>${r.item}</td><td>${r.qty} ${r.unit}</td>` +
+    `<td>${r.amount_pkr ? 'Rs ' + Number(r.amount_pkr).toLocaleString() : '—'}</td></tr>`
+  ).join('') : '<tr><td colspan="4">No entries yet.</td></tr>';
+}
+
+document.getElementById('hisabBtn').onclick = async () => {
+  const j = await (await fetch('/api/summary')).json();
+  document.getElementById('summary').textContent = j.message;
+};
+
+refreshLedger();
+</script>
+</body>
+</html>
