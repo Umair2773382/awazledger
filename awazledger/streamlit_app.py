@@ -42,6 +42,23 @@ st.caption(
 
 audio = st.audio_input("Voice note — tap the mic to record")
 
+
+def _friendly_error(e: Exception) -> str:
+    name = type(e).__name__
+    msg = str(e)
+    if "AuthenticationError" in name or " 401" in msg or "unauthorized" in msg.lower():
+        return (
+            "Voice API key was rejected. Check GROQ_API_KEY in "
+            "Manage app → Settings → Secrets (it should start with gsk_), "
+            "then reboot the app."
+        )
+    if "RateLimit" in name or " 429" in msg:
+        return "Voice API rate limit hit — wait a minute and try again."
+    if "GROQ_API_KEY is not set" in msg:
+        return "GROQ_API_KEY is missing — add it in Manage app → Settings → Secrets."
+    return f"Error: {msg or name}"
+
+
 if st.button("Submit entry", type="primary", disabled=audio is None):
     with st.spinner("Sun rahe hain…"):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
@@ -49,6 +66,8 @@ if st.button("Submit entry", type="primary", disabled=audio is None):
             tmp_path = tmp.name
         try:
             result = agent.handle_voice_note(tmp_path)
+        except Exception as e:  # noqa: BLE001 — show friendly message, never a traceback
+            result = {"ok": False, "transcript": "", "message": _friendly_error(e)}
         finally:
             Path(tmp_path).unlink(missing_ok=True)
     if result.get("transcript"):
