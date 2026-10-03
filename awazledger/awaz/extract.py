@@ -4,6 +4,7 @@ One call does intent classification + field extraction and returns strict JSON.
 Works with any OpenAI-compatible API (OpenAI, Gemini via its OpenAI endpoint, ...).
 """
 import json
+import os
 
 from .config import settings
 
@@ -50,21 +51,42 @@ OUT: {"intent":"summary","customer":null,"item":null,"quantity":null,"unit":null
 def get_client():
     from openai import OpenAI
 
-    if not settings.llm_api_key:
-        raise RuntimeError("LLM_API_KEY is not set — see .env.example")
-    return OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
+    # One Groq key can power both transcription and understanding.
+    api_key = settings.llm_api_key or os.getenv("GROQ_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("LLM_API_KEY (or GROQ_API_KEY) is not set — see .env.example")
+    return OpenAI(api_key=api_key, base_url=settings.llm_base_url)
+
+
+def _parse_json(text: str) -> dict:
+    """Parse JSON even if the model wrapped it in markdown fences."""
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.split("\n", 1)[1] if "\n" in t else t[3:]
+        t = t.rsplit("```", 1)[0]
+    return json.loads(t.strip())
 
 
 def parse_note(text: str) -> dict:
     """Classify intent + extract fields from a transcript. Returns the JSON dict."""
     client = get_client()
-    resp = client.chat.completions.create(
-        model=settings.llm_model,
-        messages=[
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": text},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0,
-    )
-    return json.loads(resp.choices[0].message.content)
+    messages = [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": text},
+    ]
+    try:
+        resp = client.chat.completions.create(
+            model=settings.llm_model,
+            messages=messages,
+            response_format={"type": "json_object"},
+            temperature=0,
+        )
+    except Exception:
+        # Some providers/models don't support JSON mode — retry plain and
+        # strip any fences from the reply instead.
+        resp = client.chat.completions.create(
+            model=settings.llm_model,
+            messages=messages,
+            temperature=0,
+        )
+    return _parse_json(resp.choices[0].message.content)
